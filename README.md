@@ -18,10 +18,10 @@ Designed to work with LLMs via the MCP (Model Context Protocol). Tested with Cla
 | Server | System | Purpose |
 |--------|--------|---------|
 | Coordinator | Redis + PostgreSQL | Locks, change log, rollback, audit |
-| ERP | Odoo Community | Vendor master data |
+| ERP | Mini-ERP service (FastAPI + PostgreSQL) | Vendor master data |
 | Payments | FastAPI + PostgreSQL | Payment holds and releases |
 | CRM | HubSpot (free) | Vendor company records |
-| Notify | Zammad + Slack | Verification tickets and announcements |
+| Notify | GitHub Issues + Slack | Verification tickets and announcements |
 
 ## Available Tools
 
@@ -39,7 +39,7 @@ Designed to work with LLMs via the MCP (Model Context Protocol). Tested with Cla
 | `release_payments` | Payments | Release held payments | `change_id`, `vendor_id` |
 | `get_company` | CRM | Get the vendor's CRM record | `vendor_id` |
 | `update_company` | CRM | Update the vendor's CRM record | `change_id`, `vendor_id`, `fields` |
-| `create_ticket` | Notify | Open a verification ticket | `change_id`, `title`, `body` |
+| `create_ticket` | Notify | Open a verification issue on GitHub | `change_id`, `title`, `body` |
 | `post_message` | Notify | Post to a Slack channel | `change_id`, `channel`, `text` |
 
 All write tools require a `change_id`, check the lock, save the before value and write an audit row.
@@ -72,14 +72,15 @@ Instructions will be added as each server is built. Everything runs locally with
 cross-system-agent/
 ├── servers/
 │   ├── coordinator/      # Locks, change log, rollback, audit
-│   ├── erp/              # Odoo vendor tools
+│   ├── erp/              # Mini-ERP vendor tools
 │   ├── payments/         # Payments service tools
 │   ├── crm/              # HubSpot tools
-│   └── notify/           # Zammad and Slack tools
+│   └── notify/           # GitHub Issues and Slack tools
 ├── services/
+│   ├── erp_api/          # FastAPI + PostgreSQL mini-ERP service
 │   └── payments_api/     # FastAPI + PostgreSQL payments service
 ├── eval/                 # Test requests and evaluation scripts
-├── docker-compose.yml    # Odoo, PostgreSQL, Redis, Keycloak, Zammad, Jaeger
+├── docker-compose.yml    # PostgreSQL, Redis, Keycloak, Jaeger
 └── README.md
 ```
 
@@ -87,10 +88,11 @@ cross-system-agent/
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ODOO_URL` | `http://localhost:8069` | Odoo instance |
-| `ODOO_API_KEY` | | Odoo API key |
+| `ERP_API_URL` | `http://localhost:9001` | Mini-ERP service |
+| `PAYMENTS_API_URL` | `http://localhost:9002` | Payments service |
 | `HUBSPOT_TOKEN` | | HubSpot private app token |
-| `ZAMMAD_TOKEN` | | Zammad API token |
+| `GITHUB_TOKEN` | | GitHub token for creating issues |
+| `GITHUB_REPO` | | Repository for verification issues (owner/name) |
 | `SLACK_BOT_TOKEN` | | Slack bot token |
 | `KEYCLOAK_URL` | `http://localhost:8080` | Keycloak instance |
 | `REDIS_URL` | `redis://localhost:6379` | Lock store |
@@ -98,8 +100,9 @@ cross-system-agent/
 
 ## Notes
 
-- All systems are free: open source in Docker, or free-tier accounts (HubSpot, Slack).
-- Odoo, HubSpot and Zammad do not accept Keycloak tokens. For them, identity is enforced at the MCP layer and recorded in the audit log.
-- The full token-exchange chain applies end to end only to the payments service.
+- All systems are free: open source in Docker, or free-tier accounts (HubSpot, Slack, GitHub).
+- HubSpot and Slack do not accept Keycloak tokens. For them, identity is enforced at the MCP layer and recorded in the audit log.
+- GitHub issues can be created under the verified user's own GitHub account through GitHub OAuth.
+- The full token-exchange chain applies end to end to the mini-ERP and payments services.
 - Some actions cannot be undone (a Slack message); a correction is posted instead.
 - For learning and portfolio use, not production.
