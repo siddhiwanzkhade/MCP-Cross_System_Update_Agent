@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "coordinator": {
+      "command": ".venv/bin/python",
+      "args": ["servers/coordinator/server.py"],
+      "env": { "AGENT_USER": "siddhi" }
+    },
+    "services": {
+      "command": ".venv/bin/python",
+      "args": ["servers/services/server.py"],
+      "env": { "AGENT_USER": "siddhi" }
+    }
+  }
+}
