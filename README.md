@@ -1,108 +1,152 @@
+Here's the full README as raw GitHub Markdown, so you can copy and paste it. It's the same content as [README.md](README.md) in the project.
+
+````markdown
 # MCP-Cross_System_Update_Agent
-A set of MCP servers that let an AI agent apply one business change across several systems, with entity-level locking, rollback and a verified audit trail.
+A set of MCP servers that let an AI agent roll out a new library version to every service that depends on it, as one unit, with library-level locking, automatic rollback and an audit trail.
 
 Designed to work with LLMs via the MCP (Model Context Protocol). Tested with Claude Code as the host.
 
 ## How It Works
 
-1. **Request**: The user asks in plain English, for example "Vendor 1042 has a new bank account. Update everything and pause payments until finance approves."
-2. **Discovery**: The host connects to each MCP server and lists its tools.
-3. **Lock**: The Coordinator locks the vendor and returns a change ID.
-4. **Apply**: The agent calls write tools on the ERP, Payments, CRM and Notify servers, each with the change ID.
-5. **Approve**: Finance approves before held payments are released.
-6. **Commit or rollback**: The change is committed, or every completed step is undone in reverse order.
-7. **Audit**: Every write is logged with the verified user, the change ID and the before and after values.
+1. **Request**: The user asks in plain English, for example "Upgrade pricekit to 2.0 in every service, run their tests, and roll back if anything fails."
+2. **Discovery**: The host connects to each MCP server and lists its tools. The agent asks which services depend on the library.
+3. **Lock**: The Coordinator locks the library (`package:pricekit`) and returns a change ID and a fencing token.
+4. **Apply**: The agent bumps the library version in each service, with the change ID. Each step is recorded *before* it happens, then the service's `requirements.txt` is edited and committed in its git repository.
+5. **Test**: The agent runs each service's tests against the new version, with a time limit.
+6. **Commit or rollback**: If every test passes, the change is committed. If any test fails, every service is reset to the commit it had before, newest step first.
+7. **Audit**: Every step is logged with the user, the change ID and the before and after values.
+
+If an agent crashes halfway, a cleanup job rolls back its change once the lock expires. If rolling back could destroy newer work (a later change on the same library, or someone else's commit on top), the change is marked `needs_review` for a person instead.
+
+## Demo
+
+`scripts/setup_demo.py` creates one shared library and three services, each its own git repository, all on `pricekit==1.0`:
+
+| Version | What changed | checkout | billing | reports |
+|---------|--------------|:--------:|:-------:|:-------:|
+| 1.0 | Today's version | ✅ | ✅ | ✅ |
+| 1.1 | Adds `parse_price` (safe) | ✅ | ✅ | ✅ |
+| 2.0 | `format_price` now requires a currency (breaking) | ✅ | ❌ | ✅ |
+
+Upgrading to 1.1 commits. Upgrading to 2.0 fails billing's tests, so all three services roll back to 1.0.
 
 ## MCP Servers
 
 | Server | System | Purpose |
 |--------|--------|---------|
-| Coordinator | Redis + PostgreSQL | Locks, change log, rollback, audit |
-| ERP | Mini-ERP service (FastAPI + PostgreSQL) | Vendor master data |
-| Payments | FastAPI + PostgreSQL | Payment holds and releases |
-| CRM | HubSpot (free) | Vendor company records |
-| Notify | GitHub Issues + Slack | Verification tickets and announcements |
+| Coordinator | SQLite | Locks, change log, rollback, audit, cleanup |
+| Services | Local git repositories | Dependency versions, bumps and test runs |
+
+The two servers never call each other. They share one SQLite database for bookkeeping, and the `change_id` ties the steps of one rollout together.
 
 ## Available Tools
 
 | Tool | Server | Description | Parameters |
 |------|--------|-------------|------------|
 | `begin_change` | Coordinator | Lock an entity and start a change | `entity`, `reason` |
-| `commit_change` | Coordinator | Complete a change and release the lock | `change_id` |
-| `rollback_change` | Coordinator | Undo all completed steps | `change_id` |
-| `get_audit_trail` | Coordinator | Show the history of an entity | `entity` |
-| `find_vendor` | ERP | Search vendors by name | `query`, `limit` |
-| `get_vendor` | ERP | Get full vendor details | `vendor_id` |
-| `update_vendor_bank` | ERP | Change vendor bank details | `change_id`, `vendor_id`, `bank_details` |
-| `list_pending_payments` | Payments | List unpaid payments for a vendor | `vendor_id` |
-| `hold_payments` | Payments | Put pending payments on hold | `change_id`, `vendor_id` |
-| `release_payments` | Payments | Release held payments | `change_id`, `vendor_id` |
-| `get_company` | CRM | Get the vendor's CRM record | `vendor_id` |
-| `update_company` | CRM | Update the vendor's CRM record | `change_id`, `vendor_id`, `fields` |
-| `create_ticket` | Notify | Open a verification issue on GitHub | `change_id`, `title`, `body` |
-| `post_message` | Notify | Post to a Slack channel | `change_id`, `channel`, `text` |
+| `extend_lock` | Coordinator | Keep holding the lock during long steps (max 1 hour) | `change_id`, `seconds` |
+| `commit_change` | Coordinator | Complete a change and release the lock (refused if a step is unfinished) | `change_id` |
+| `rollback_change` | Coordinator | Undo every step in reverse order | `change_id` |
+| `get_change` | Coordinator | Show a change's status and steps | `change_id` |
+| `get_audit_trail` | Coordinator | Show the history of an entity | `entity`, `limit` |
+| `cleanup_expired_changes` | Coordinator | Roll back open changes whose lock expired | |
+| `list_services` | Services | List services, their dependencies and current commit | |
+| `list_dependents` | Services | List the services that use a package, and which version | `package` |
+| `list_versions` | Services | List a package's available versions | `package` |
+| `bump_dependency` | Services | Change a service's package version and commit it | `change_id`, `service`, `package`, `version` |
+| `run_tests` | Services | Run a service's tests against its current versions | `service`, `timeout_seconds` |
 
-All write tools require a `change_id`, check the lock, save the before value and write an audit row.
+Every write tool requires a `change_id`, checks the lock and fencing token, records the before state first, and writes an audit row.
 
 ## LLM MCP Configuration
 
-Planned configuration (ports may change):
+`.mcp.json` (used by Claude Code):
 
-```
+```json
 {
   "mcpServers": {
-    "coordinator": { "url": "http://localhost:8001/mcp", "transport": "http" },
-    "erp":         { "url": "http://localhost:8002/mcp", "transport": "http" },
-    "payments":    { "url": "http://localhost:8003/mcp", "transport": "http" },
-    "crm":         { "url": "http://localhost:8004/mcp", "transport": "http" },
-    "notify":      { "url": "http://localhost:8005/mcp", "transport": "http" }
+    "coordinator": {
+      "command": ".venv/bin/python",
+      "args": ["servers/coordinator/server.py"],
+      "env": { "AGENT_USER": "siddhi" }
+    },
+    "services": {
+      "command": ".venv/bin/python",
+      "args": ["servers/services/server.py"],
+      "env": { "AGENT_USER": "siddhi" }
+    }
   }
 }
 ```
 
-Each server requires a Keycloak access token.
+Both servers run locally over stdio.
 
 ## Local Development
 
-Instructions will be added as each server is built. Everything runs locally with Docker Compose.
+Requires Python 3.10+ and git.
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+
+# Create the demo library, services and database (run again for a clean start)
+.venv/bin/python scripts/setup_demo.py
+
+# Run the tests (temporary database and workspace, so your demo data is untouched)
+.venv/bin/pytest
+
+# Optional: roll back abandoned changes every 60 seconds
+.venv/bin/python scripts/cleanup_expired_changes.py
+```
+
+Then open the project in Claude Code, which starts both servers from `.mcp.json`, and ask it to upgrade pricekit.
 
 ## Project Structure
 
 ```
-cross-system-agent/
+MCP-Cross-System-Update-Agent/
 ├── servers/
-│   ├── coordinator/      # Locks, change log, rollback, audit
-│   ├── erp/              # Mini-ERP vendor tools
-│   ├── payments/         # Payments service tools
-│   ├── crm/              # HubSpot tools
-│   └── notify/           # GitHub Issues and Slack tools
-├── services/
-│   ├── erp_api/          # FastAPI + PostgreSQL mini-ERP service
-│   └── payments_api/     # FastAPI + PostgreSQL payments service
-├── eval/                 # Test requests and evaluation scripts
-├── docker-compose.yml    # PostgreSQL, Redis, Keycloak, Jaeger
-└── README.md
+│   ├── coordinator/server.py     # Locks, change log, rollback, audit, cleanup
+│   └── services/server.py        # Dependency bumps and test runs
+├── shared/
+│   ├── db.py                     # Database connection and schema
+│   ├── locks.py                  # Expiring locks with fencing tokens
+│   ├── audit.py                  # Change steps (pending/done) and audit log
+│   └── workspace.py              # Library versions, service repositories, git
+├── scripts/
+│   ├── setup_demo.py             # Creates the demo workspace and database
+│   └── cleanup_expired_changes.py  # Background cleanup job
+├── tests/                        # 28 tests: rollback, races, crashes, cleanup
+├── docs/ARCHITECTURE.md          # Diagrams of how everything connects
+├── data/                         # Created by setup_demo.py (not in git)
+├── .mcp.json
+├── pytest.ini
+└── requirements.txt
 ```
 
 ## Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ERP_API_URL` | `http://localhost:9001` | Mini-ERP service |
-| `PAYMENTS_API_URL` | `http://localhost:9002` | Payments service |
-| `HUBSPOT_TOKEN` | | HubSpot private app token |
-| `GITHUB_TOKEN` | | GitHub token for creating issues |
-| `GITHUB_REPO` | | Repository for verification issues (owner/name) |
-| `SLACK_BOT_TOKEN` | | Slack bot token |
-| `KEYCLOAK_URL` | `http://localhost:8080` | Keycloak instance |
-| `REDIS_URL` | `redis://localhost:6379` | Lock store |
-| `DATABASE_URL` | | PostgreSQL for change log and audit |
+| `AGENT_USER` | `unknown-user` | Who is making changes (placeholder for a verified identity) |
+| `AGENT_DB_PATH` | `data/agent.db` | SQLite database for changes, locks and audit |
+| `AGENT_WORKSPACE` | `data/workspace` | Folder with the libraries and service repositories |
+
+## Roadmap
+
+- Move the services to GitHub repositories and run their tests in CI
+- Publish library versions to a local package registry, as the last step of a rollout
+- Notifications and tickets: Slack and GitHub Issues when a rollout fails or needs review
+- Keycloak login with token exchange, so every step traces to a verified user
+- Docker Compose and an evaluation set of scripted rollout requests
 
 ## Notes
 
-- All systems are free: open source in Docker, or free-tier accounts (HubSpot, Slack, GitHub).
-- HubSpot and Slack do not accept Keycloak tokens. For them, identity is enforced at the MCP layer and recorded in the audit log.
-- GitHub issues can be created under the verified user's own GitHub account through GitHub OAuth.
-- The full token-exchange chain applies end to end to the mini-ERP and payments services.
-- Some actions cannot be undone (a Slack message); a correction is posted instead.
+- Everything in the current version runs locally and offline. Library versions are "installed" by putting their folder on `PYTHONPATH` during test runs.
+- Steps are recorded before acting, so a crash in the middle of a bump is still rolled back.
+- Rollback resets a service only if its latest commit is the one this change made; otherwise the change goes to `needs_review`.
+- The lock covers one library, so rollouts of two different libraries can touch the same service at once. If they collide, the undo refuses instead of destroying work.
+- Nothing forces the agent to run tests before committing yet; that is the agent's job, as the tool descriptions say.
+- `AGENT_USER` is a placeholder until Keycloak login is added.
 - For learning and portfolio use, not production.
+````
