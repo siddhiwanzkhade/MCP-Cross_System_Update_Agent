@@ -248,6 +248,27 @@ def _undo_set(conn, before, after): ...
 - **Local only:** libraries are "installed" by putting their folder on
   `PYTHONPATH`. Nothing is published or downloaded.
 
+## Cloud deployment
+
+`app.py` runs both servers as one HTTP service, for hosting in the cloud.
+The `Dockerfile` builds it; `.mcp.json` and the two stdio servers stay the way
+to run it locally.
+
+```
+Claude / any MCP client ──HTTPS──► POST /mcp   all 12 tools + reset_demo (Streamable HTTP)
+Browser ─────────────────────────► GET  /      how to connect, tool list
+                                   GET  /info  the same as JSON
+Cloud platform ──────────────────► GET  /health
+```
+
+- On first start it creates the demo workspace and database.
+- A background thread rolls back abandoned changes every 60 seconds.
+- Everyone who connects shares one demo. `reset_demo` starts it over, and is
+  refused while a change is still in progress.
+- With no login yet, every change is recorded under `AGENT_USER` (`demo-user`
+  in the Dockerfile).
+- Most hosts give a container temporary storage, so a restart resets the demo.
+
 ## Setup
 
 ```

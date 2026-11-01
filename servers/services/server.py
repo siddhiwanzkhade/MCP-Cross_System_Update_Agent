@@ -26,6 +26,7 @@ from shared.locks import guard_write  # noqa: E402
 mcp = FastMCP("services")
 
 DEFAULT_TEST_TIMEOUT_SECONDS = 120
+MAX_TEST_TIMEOUT_SECONDS = 300
 MAX_OUTPUT_CHARS = 2000
 
 
@@ -100,6 +101,8 @@ def bump_dependency_impl(change_id: str, service: str, package: str, version: st
 
 def run_tests_impl(service: str, timeout_seconds: float = DEFAULT_TEST_TIMEOUT_SECONDS) -> dict:
     """Run a service's tests against the library versions in its requirements.txt."""
+    if not 0 < timeout_seconds <= MAX_TEST_TIMEOUT_SECONDS:
+        raise AgentError(f"timeout_seconds must be between 1 and {MAX_TEST_TIMEOUT_SECONDS}.")
     path = workspace.service_path(service)
     requirements = workspace.read_requirements(service)
     library_paths = []
