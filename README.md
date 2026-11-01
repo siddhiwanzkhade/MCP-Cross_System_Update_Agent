@@ -1,6 +1,3 @@
-Here's the full README as raw GitHub Markdown, so you can copy and paste it. It's the same content as [README.md](README.md) in the project.
-
-````markdown
 # MCP-Cross_System_Update_Agent
 A set of MCP servers that let an AI agent roll out a new library version to every service that depends on it, as one unit, with library-level locking, automatic rollback and an audit trail.
 
@@ -149,4 +146,3 @@ MCP-Cross-System-Update-Agent/
 - Nothing forces the agent to run tests before committing yet; that is the agent's job, as the tool descriptions say.
 - `AGENT_USER` is a placeholder until Keycloak login is added.
 - For learning and portfolio use, not production.
-````
