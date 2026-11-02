@@ -2,10 +2,11 @@
 A set of MCP servers that let an AI agent roll out a new library version to every service that depends on it, as one unit, with library-level locking, automatic rollback and an audit trail.
 
 Designed to work with LLMs via the MCP (Model Context Protocol). Tested with Claude Code as the host.
+The demo uses `pricekit`, a small stand-in library built for this project, in place of a real package like pydantic, numpy or pandas, so it runs offline and fails the same way every time.
 
 ## How It Works
 
-1. **Request**: The user asks in plain English, for example "Upgrade pricekit to 2.0 in every service, run their tests, and roll back if anything fails."
+1. **Request**: The user asks in plain English, for example "Upgrade pricekit to 2.0 in every service, run their tests, and roll back if anything fails." (In a real team, this would be a library like pydantic 1.10 → 2.0.)
 2. **Discovery**: The host connects to each MCP server and lists its tools. The agent asks which services depend on the library.
 3. **Lock**: The Coordinator locks the library (`package:pricekit`) and returns a change ID and a fencing token.
 4. **Apply**: The agent bumps the library version in each service, with the change ID. Each step is recorded *before* it happens, then the service's `requirements.txt` is edited and committed in its git repository.
@@ -17,13 +18,13 @@ If an agent crashes halfway, a cleanup job rolls back its change once the lock e
 
 ## Demo
 
-`scripts/setup_demo.py` creates one shared library and three services, each its own git repository, all on `pricekit==1.0`:
+`scripts/setup_demo.py` creates `pricekit`, a stand-in for a shared library, and three services, each its own git repository, all on `pricekit==1.0`:
 
 | Version | What changed | checkout | billing | reports |
 |---------|--------------|:--------:|:-------:|:-------:|
 | 1.0 | Today's version | ✅ | ✅ | ✅ |
 | 1.1 | Adds `parse_price` (safe) | ✅ | ✅ | ✅ |
-| 2.0 | `format_price` now requires a currency (breaking) | ✅ | ❌ | ✅ |
+| 2.0 | `format_price` now requires a currency (breaking, like pydantic 2.0 moving `BaseSettings` out) | ✅ | ❌ | ✅ |
 
 Upgrading to 1.1 commits. Upgrading to 2.0 fails billing's tests, so all three services roll back to 1.0.
 
@@ -98,6 +99,20 @@ python3 -m venv .venv
 
 Then open the project in Claude Code, which starts both servers from `.mcp.json`, and ask it to upgrade pricekit.
 
+## Try It
+
+Connect your own MCP client to the live demo, no install needed:
+
+    https://your-project.run.app/mcp
+
+- **Claude Code:** `claude mcp add --transport http rollout https://your-project.run.app/mcp`
+- **Claude Desktop / Cursor / VS Code / ChatGPT:** add it as a custom MCP server or connector with that URL
+
+Then ask: *"Upgrade pricekit to 2.0 in every service and roll back if anything fails."*
+
+The demo is shared by everyone and resets when the server restarts. Use the `reset_demo` tool for a clean start.
+
+
 ## Project Structure
 
 ```
@@ -136,6 +151,7 @@ MCP-Cross-System-Update-Agent/
 - Notifications and tickets: Slack and GitHub Issues when a rollout fails or needs review
 - Keycloak login with token exchange, so every step traces to a verified user
 - Docker Compose and an evaluation set of scripted rollout requests
+-  Run against real PyPI packages (for example pydantic 1.10 → 2.0) instead of the stand-in library
 
 ## Notes
 
