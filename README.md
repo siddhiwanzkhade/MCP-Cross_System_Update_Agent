@@ -101,16 +101,17 @@ Then open the project in Claude Code, which starts both servers from `.mcp.json`
 
 ## Try It
 
-Connect your own MCP client to the live demo, no install needed:
+The server is live. Connect your own MCP client, no install needed:
 
-    https://your-project.run.app/mcp
+    https://mcp-cross-system-update-agent.onrender.com/mcp
 
-- **Claude Code:** `claude mcp add --transport http rollout https://your-project.run.app/mcp`
-- **Claude Desktop / Cursor / VS Code / ChatGPT:** add it as a custom MCP server or connector with that URL
+- **Claude Code:** `claude mcp add --transport http rollout https://mcp-cross-system-update-agent.onrender.com/mcp`
+- **Claude Desktop, Cursor, VS Code, ChatGPT:** add a custom MCP server or connector with the URL above
 
 Then ask: *"Upgrade pricekit to 2.0 in every service and roll back if anything fails."*
 
-The demo is shared by everyone and resets when the server restarts. Use the `reset_demo` tool for a clean start.
+- Everyone shares one demo. Use the `reset_demo` tool for a clean start.
+- Free hosting: the server sleeps when idle, so the first request can take up to a minute, and the demo resets when it wakes.
 
 
 ## Project Structure
